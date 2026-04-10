@@ -4,7 +4,7 @@ A layered star-field animation centered on Polaris — the fixed point around wh
 
 ## Live Demo
 
-🔗 **[View on GitHub Pages](https://tgmf.github.io/polaris/)**
+🔗 **[View on GitHub Pages](https://polaris.tgmf.st)**
 
 ## What it is
 
