@@ -15,11 +15,15 @@
     overflow: hidden;
   }
 
-  /* The pivot point: 48px from top, 96px from left */
+  /*
+   * Anchor sits at ~5vh from top, ~5vw from left — same visual position
+   * as the original 48px / 96px but now proportional.
+   * JS moves it in a slow circle via CSS custom properties.
+   */
   #anchor {
     position: fixed;
-    top: 48px;
-    left: 96px;
+    top:  calc(5vh  + var(--drift-y, 0px));
+    left: calc(5vw + var(--drift-x, 0px));
     width: 0;
     height: 0;
   }
@@ -27,63 +31,122 @@
   .layer {
     position: absolute;
     display: block;
-    /* Each layer is centered on the anchor via top/left offset */
     transform-origin: center center;
+    /* centering handled by JS on resize */
   }
 
-  #stars  { opacity: 0.75; }
-
-  /* layers 3344×3344 → half = 1672 */
-  #stars,
-  #layer5,
-  #layer4,
-  #layer3,
-  #layer2,
-  #layer1 {
-    width:  3344px;
-    height: 3344px;
-    top:  -1672px;
-    left: -1672px;
-  }
-
-  /* constellations 4040×4040 → half = 2020 */
-  #constellations {
-    width:  4040px;
-    height: 4040px;
-    top:  -2020px;
-    left: -2020px;
-  }
-
-  #stars          { animation: spin 7680s linear infinite; }
-  #layer5         { animation: spin 4640s linear infinite; }
-  #layer4         { animation: spin 3040s linear infinite; }
-  #layer3         { animation: spin 1600s linear infinite; }
-  #layer2         { animation: spin  1440s linear infinite; }
-  #layer1         { animation: spin  960s linear infinite; }
-  #constellations { animation: spin  480s linear infinite; }
-
-  @keyframes spin {
-    from { transform: rotate(360deg); }
-    to   { transform: rotate(0deg); }
-  }
+  #stars { opacity: 0.75; }
 </style>
 </head>
 <body>
 
 <div id="anchor">
-
-  <img id="stars" class="layer" src="stars.jpg"
+  <img id="stars"          class="layer" src="stars.jpg"
        onerror="this.style.display='none'">
-
-  <img id="layer5" class="layer" src="layer5.svg">
-  <img id="layer4" class="layer" src="layer4.svg">
-  <img id="layer3" class="layer" src="layer3.svg">
-  <img id="layer2" class="layer" src="layer2.svg">
-  <img id="layer1" class="layer" src="layer1.svg">
-
+  <img id="layer5"         class="layer" src="layer5.svg">
+  <img id="layer4"         class="layer" src="layer4.svg">
+  <img id="layer3"         class="layer" src="layer3.svg">
+  <img id="layer2"         class="layer" src="layer2.svg">
+  <img id="layer1"         class="layer" src="layer1.svg">
   <img id="constellations" class="layer" src="constellations.svg">
-
 </div>
+
+<script>
+(() => {
+  /*
+   * Layer config
+   * nativeSize   — the original pixel dimension (square)
+   * targetDiags  — how many screen diagonals should fit in that dimension
+   *                (4040 is "two diagonals" per spec; 3344 layers scaled proportionally)
+   * period       — rotation period in seconds (positive = CCW to match original)
+   */
+  // Scale factor: 4040px native = 2 screen diagonals.
+  // All layers use the same scale factor; nativeSize determines rendered px.
+  const SCALE_REF = 4040; // native px that equals 2 diagonals
+  const LAYERS = [
+    { id: 'stars',          nativeSize: 4040, period: 7680 },
+    { id: 'layer5',         nativeSize: 3344, period: 4640 },
+    { id: 'layer4',         nativeSize: 3344, period: 3040 },
+    { id: 'layer3',         nativeSize: 3344, period: 1600 },
+    { id: 'layer2',         nativeSize: 3344, period: 1440 },
+    { id: 'layer1',         nativeSize: 3344, period:  960 },
+    { id: 'constellations', nativeSize: 4040, period:  480 },
+  ];
+
+  // Drift circle for the anchor
+  const DRIFT_RADIUS_VW = 1.25; // ~2.5vw diameter
+  const DRIFT_PERIOD    = 180;  // seconds for one full circle
+
+  // Accumulated time — advances only when tab is visible
+  let elapsed  = 0;
+  let lastTS   = null; // performance.now() timestamp of previous frame
+
+  const anchor = document.getElementById('anchor');
+  const elems  = LAYERS.map(l => ({
+    el:     document.getElementById(l.id),
+    period: l.period,
+    targetDiags: l.targetDiags,
+  }));
+
+  /* ── sizing ── */
+  function diag() {
+    return Math.sqrt(window.innerWidth ** 2 + window.innerHeight ** 2);
+  }
+
+  function resize() {
+    const scale = (2 * diag()) / SCALE_REF;
+    elems.forEach(({ el }, i) => {
+      const px   = LAYERS[i].nativeSize * scale;
+      const half = px / 2;
+      el.style.width  = px + 'px';
+      el.style.height = px + 'px';
+      el.style.top    = -half + 'px';
+      el.style.left   = -half + 'px';
+    });
+  }
+
+  window.addEventListener('resize', resize);
+  resize();
+
+  /* ── animation loop ── */
+  function frame(ts) {
+    // Advance elapsed only when tab is visible
+    if (document.visibilityState === 'visible') {
+      if (lastTS !== null) {
+        elapsed += (ts - lastTS) / 1000; // convert ms → s
+      }
+      lastTS = ts;
+    } else {
+      // Tab hidden — freeze lastTS so we don't get a huge jump on return
+      lastTS = null;
+    }
+
+    // Rotate layers
+    elems.forEach(({ el, period }) => {
+      const angle = (elapsed / period) * 360; // degrees
+      // Original went from 360→0 (CCW), keep that direction
+      el.style.transform = `rotate(${-angle % 360}deg)`;
+    });
+
+    // Drift anchor in a slow circle
+    const driftAngle = (elapsed / DRIFT_PERIOD) * Math.PI * 2;
+    const r = window.innerWidth * DRIFT_RADIUS_VW / 100;
+    anchor.style.setProperty('--drift-x', Math.cos(driftAngle) * r + 'px');
+    anchor.style.setProperty('--drift-y', Math.sin(driftAngle) * r + 'px');
+
+    requestAnimationFrame(frame);
+  }
+
+  // Resume lastTS correctly when tab comes back into focus
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      lastTS = null; // will be set on next frame — no jump
+    }
+  });
+
+  requestAnimationFrame(frame);
+})();
+</script>
 
 </body>
 </html>
