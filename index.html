@@ -145,6 +145,15 @@
   });
 
   requestAnimationFrame(frame);
+
+  /* ── click toggles fullscreen ── */
+  document.addEventListener('click', () => {
+    if (document.fullscreenElement) {
+      document.exitFullscreen();
+    } else {
+      document.documentElement.requestFullscreen().catch(() => {});
+    }
+  });
 })();
 </script>
 
